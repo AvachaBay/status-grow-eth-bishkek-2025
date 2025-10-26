@@ -10,7 +10,7 @@
 
 *The most rewarding quest platform built for Web3 with zero gas fees and real rewards*
 
-[🚀 Live Demo](http://localhost:3000) • [📖 Documentation](#documentation) • [🤝 Contribute](#contributing)
+[🚀 Live Demo](https://status-grow-eth-bishkek-2025-nextjs.vercel.app/) • [📖 Documentation](#documentation) • [🤝 Contribute](#contributing)
 
 </div>
 
@@ -215,7 +215,7 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENCE](LICENCE) file for details.
 
 ## 🙏 Acknowledgments
 
