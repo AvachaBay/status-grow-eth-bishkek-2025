@@ -1,7 +1,6 @@
 import * as dotenv from "dotenv";
 dotenv.config();
 import { Wallet } from "ethers";
-import password from "@inquirer/password";
 import { spawn } from "child_process";
 import { config } from "hardhat";
 
@@ -26,33 +25,40 @@ async function main() {
     return;
   }
 
-  const encryptedKey = process.env.DEPLOYER_PRIVATE_KEY_ENCRYPTED;
+  // If an unencrypted private key is provided, use it directly (CI/non-interactive flows)
+  if (process.env.DEPLOYER_PRIVATE_KEY) {
+    process.env.__RUNTIME_DEPLOYER_PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY;
+  } else {
+    const encryptedKey = process.env.DEPLOYER_PRIVATE_KEY_ENCRYPTED;
 
-  if (!encryptedKey) {
-    console.log("🚫️ You don't have a deployer account. Run `yarn generate` or `yarn account:import` first");
-    return;
+    if (!encryptedKey) {
+      console.log("🚫️ You don't have a deployer account. Run `yarn generate` or `yarn account:import` first");
+      return;
+    }
+
+    const pass = process.env.DEPLOYER_PASSWORD ?? ""; // default to empty password if none provided
+
+    try {
+      const wallet = await Wallet.fromEncryptedJson(encryptedKey, pass);
+      process.env.__RUNTIME_DEPLOYER_PRIVATE_KEY = wallet.privateKey;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (e) {
+      console.error(
+        "Failed to decrypt private key. Set DEPLOYER_PASSWORD (can be empty) or provide DEPLOYER_PRIVATE_KEY.",
+      );
+      process.exit(1);
+    }
   }
 
-  const pass = await password({ message: "Enter password to decrypt private key:" });
+  const hardhat = spawn("hardhat", ["deploy", ...process.argv.slice(2)], {
+    stdio: "inherit",
+    env: process.env,
+    shell: process.platform === "win32",
+  });
 
-  try {
-    const wallet = await Wallet.fromEncryptedJson(encryptedKey, pass);
-    process.env.__RUNTIME_DEPLOYER_PRIVATE_KEY = wallet.privateKey;
-
-    const hardhat = spawn("hardhat", ["deploy", ...process.argv.slice(2)], {
-      stdio: "inherit",
-      env: process.env,
-      shell: process.platform === "win32",
-    });
-
-    hardhat.on("exit", code => {
-      process.exit(code || 0);
-    });
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  } catch (e) {
-    console.error("Failed to decrypt private key. Wrong password?");
-    process.exit(1);
-  }
+  hardhat.on("exit", code => {
+    process.exit(code || 0);
+  });
 }
 
 main().catch(console.error);

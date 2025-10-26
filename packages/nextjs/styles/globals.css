@@ -121,3 +121,15 @@
 .link:hover {
   opacity: 80%;
 }
+
+/* Ensure icons have proper sizing */
+svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Fix for Heroicons sizing issues */
+[data-heroicon] {
+  width: 1em;
+  height: 1em;
+}
