@@ -57,7 +57,10 @@ export const useUserState = create<UserState>()(
 
       // Actions
       setWalletAddress: (address: string | null) => {
+        console.log("📍 Setting wallet address:", address);
+        console.log("📊 Previous wallet address:", get().walletAddress);
         set({ walletAddress: address, lastUpdated: Date.now() });
+        console.log("✅ Wallet address updated");
       },
 
       updateQuestProgress: (questId: number, completed: boolean, xpEarned: number) => {
@@ -88,6 +91,14 @@ export const useUserState = create<UserState>()(
       },
 
       resetUserState: () => {
+        console.log("🔄 Resetting user state - clearing all quest progress, XP, and level");
+        console.log("📊 Before reset:", {
+          questProgress: get().questProgress,
+          totalXP: get().totalXP,
+          level: get().level,
+          questCompletionPercentage: get().questCompletionPercentage,
+        });
+
         set({
           walletAddress: null,
           questProgress: initialQuestProgress,
@@ -96,6 +107,14 @@ export const useUserState = create<UserState>()(
           questCompletionPercentage: 0,
           lastUpdated: Date.now(),
           createdAt: Date.now(),
+        });
+
+        console.log("✅ User state reset complete - all quests marked as incomplete");
+        console.log("📊 After reset:", {
+          questProgress: initialQuestProgress,
+          totalXP: 0,
+          level: 1,
+          questCompletionPercentage: 0,
         });
       },
 

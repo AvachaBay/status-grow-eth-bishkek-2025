@@ -1,4 +1,4 @@
-import { checkUserVaultStakes, getLatestVaultStake, hasUserStakedInVault } from "../utils/vaultStakeChecker";
+import { checkUserVaultStakes, getLatestVaultStake, hasUserStakedInVault } from "../vaultStakeChecker";
 import { createPublicClient, http } from "viem";
 
 /**

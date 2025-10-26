@@ -4,6 +4,7 @@ import { useState } from "react";
 
 const Partners = () => {
   const [currentSection, setCurrentSection] = useState("hero");
+  const [formSubmitted, setFormSubmitted] = useState(false);
 
   const pricingPlans = [
     {
@@ -110,6 +111,9 @@ const Partners = () => {
 
     const projectName = formData.get("projectName");
     const mailtoLink = `mailto:partners@statusgrow.com?subject=Partnership: ${encodeURIComponent(projectName as string)}&body=${encodeURIComponent(emailBody)}`;
+
+    // Set form as submitted before opening email client
+    setFormSubmitted(true);
     window.location.href = mailtoLink;
   };
 
@@ -117,12 +121,14 @@ const Partners = () => {
     return (
       <section className="py-20 bg-gray-50 dark:bg-gray-800">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Success Message */}
-          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-6 mb-8 text-center">
-            <p className="text-green-600 dark:text-green-400 font-semibold">
-              ✓ Thank you! Our team will contact you within 24 hours.
-            </p>
-          </div>
+          {/* Success Message - Only show after form submission */}
+          {formSubmitted && (
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-6 mb-8 text-center">
+              <p className="text-green-600 dark:text-green-400 font-semibold">
+                ✓ Thank you! Our team will contact you within 24 hours.
+              </p>
+            </div>
+          )}
 
           {/* Registration Form */}
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl p-12">

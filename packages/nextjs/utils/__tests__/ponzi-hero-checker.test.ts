@@ -2,7 +2,7 @@ import {
   checkUserPonziHeroInteractions,
   getLatestPonziHeroInteraction,
   hasUserInteractedWithPonziHero,
-} from "../utils/ponziHeroChecker";
+} from "../ponziHeroChecker";
 import { createPublicClient, http } from "viem";
 
 /**

@@ -6,8 +6,12 @@ import Quests from "~~/components/statusgrow/Quests";
 import { StatelessInfo } from "~~/components/statusgrow/StatelessInfo";
 import { StatelessToggle } from "~~/components/statusgrow/StatelessToggle";
 import { UserStats } from "~~/components/statusgrow/UserStats";
+import { useUserStatePersistence } from "~~/hooks/useUserStatePersistence";
 
 const AppPage = () => {
+  // Initialize wallet state persistence and tracking
+  useUserStatePersistence();
+
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
       <Header />

@@ -1,30 +1,26 @@
+import { BLOCK_RANGE, CONTRACT_ADDRESSES, NETWORK_CONFIG, START_BLOCK } from "./constants";
 import { type Address, createPublicClient, http } from "viem";
 
 // Status Sepolia network configuration
 const STATUS_SEPOLIA_CHAIN = {
-  id: 1660990954,
+  id: NETWORK_CONFIG.CHAIN_ID,
   name: "Status Sepolia",
   network: "statusSepolia",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
   rpcUrls: {
-    default: { http: ["https://public.sepolia.rpc.status.network"] },
-    public: { http: ["https://public.sepolia.rpc.status.network"] },
+    default: { http: [NETWORK_CONFIG.RPC_URL] },
+    public: { http: [NETWORK_CONFIG.RPC_URL] },
   },
   blockExplorers: {
-    default: { name: "StatusScan", url: "https://sepoliascan.status.network" },
+    default: { name: "StatusScan", url: NETWORK_CONFIG.BLOCK_EXPLORER_URL },
   },
 } as const;
 
-// Contract addresses and method IDs
-const VAULT_ADDRESS = "0xc13Bf1d5986D8831116E36d11b4d2AE859258C7D" as const;
-const STAKE_METHOD_ID = "0x7b0472f0"; // keccak256("stake(uint256,uint256)").slice(0, 10)
+// Contract addresses from constants
+const VAULT_PROXY_ADDRESS = CONTRACT_ADDRESSES.VAULT_PROXY;
+const MINIMUM_STAKE_AMOUNT = 100n * 10n ** 18n; // 100 SNT in wei
 
-// Optimized start block - only check recent blocks for better performance
-const OPTIMIZED_START_BLOCK = 11750000n; // Much more recent start block
-
-// Known test transaction for verification
-const KNOWN_TEST_TX_HASH = "0xa56b54742e475577d0c802a226db2093ee31f9224ee680381dda69bb40289e13";
-const KNOWN_TEST_ADDRESS = "0xb248A284756a52C7eC5Fb119648747128c1eC28b";
+// Use START_BLOCK from constants for consistency
 
 // Types for vault stake transactions
 export interface VaultStakeTransaction {
@@ -50,44 +46,8 @@ const createProvider = () => {
 };
 
 /**
- * Parse stake transaction data to extract amount and lock period
- * @param input - The transaction input data
- * @returns Object with stakeAmount and lockPeriod
- */
-function parseStakeTransactionData(input: string): { stakeAmount: bigint; lockPeriod: bigint } {
-  try {
-    // Remove the method ID (first 10 characters) to get the encoded parameters
-    const encodedParams = input.slice(10);
-
-    // Each parameter is 32 bytes (64 hex characters)
-    // stake(uint256 _amount, uint256 _seconds)
-    const amountHex = encodedParams.slice(0, 64);
-    const lockPeriodHex = encodedParams.slice(64, 128);
-
-    const stakeAmount = BigInt("0x" + amountHex);
-    const lockPeriod = BigInt("0x" + lockPeriodHex);
-
-    return { stakeAmount, lockPeriod };
-  } catch (error) {
-    console.error("Error parsing stake transaction data:", error);
-    return { stakeAmount: 0n, lockPeriod: 0n };
-  }
-}
-
-/**
- * Check if stake amount meets minimum requirement (100 SNT)
- * @param stakeAmount - The stake amount in wei
- * @returns boolean - True if amount is >= 100 SNT
- */
-function isValidStakeAmount(stakeAmount: bigint): boolean {
-  const minimumStake = 100n * 10n ** 18n; // 100 SNT in wei (18 decimals)
-  return stakeAmount >= minimumStake;
-}
-
-/**
- * Check if a user has staked SNT tokens in the vault contract
- * @param userAddress - The address to check for stake transactions
- * @param maxBlocksBack - Maximum number of blocks to search back (ignored, uses global start block)
+ * Check if a user has staked SNT tokens in the vault contract using Staked events
+ * @param userAddress - The address to check for stake events
  * @returns Promise<VaultStakeTransaction[]> - Array of stake transactions found
  */
 export async function checkUserVaultStakes(userAddress: Address): Promise<VaultStakeTransaction[]> {
@@ -105,91 +65,61 @@ export async function checkUserVaultStakes(userAddress: Address): Promise<VaultS
   const provider = createProvider();
 
   try {
-    // Special case: Check known test transaction first
-    if (userAddress.toLowerCase() === KNOWN_TEST_ADDRESS.toLowerCase()) {
-      try {
-        const knownTx = await provider.getTransaction({ hash: KNOWN_TEST_TX_HASH });
-
-        if (
-          knownTx.from.toLowerCase() === userAddress.toLowerCase() &&
-          knownTx.to &&
-          knownTx.to.toLowerCase() === VAULT_ADDRESS.toLowerCase() &&
-          knownTx.input.startsWith(STAKE_METHOD_ID)
-        ) {
-          // Parse the known test transaction data
-          const { stakeAmount, lockPeriod } = parseStakeTransactionData(knownTx.input);
-
-          // Check if the known transaction meets minimum requirements
-          if (isValidStakeAmount(stakeAmount)) {
-            console.log(
-              `✅ Found known test transaction for ${userAddress} with valid amount: ${Number(stakeAmount) / 1e18} SNT`,
-            );
-            return [
-              {
-                transactionHash: knownTx.hash,
-                blockNumber: knownTx.blockNumber,
-                from: knownTx.from,
-                to: knownTx.to,
-                input: knownTx.input,
-                methodId: knownTx.input.slice(0, 10),
-                stakeAmount,
-                lockPeriod,
-              },
-            ];
-          } else {
-            console.log(
-              `❌ Known test transaction has insufficient amount: ${Number(stakeAmount) / 1e18} SNT < 100 SNT`,
-            );
-          }
-        }
-      } catch (err) {
-        console.log(`⚠️  Known test transaction not found: ${err}`);
-      }
-    }
-
-    // Get recent block number
-    const blockNumber = await provider.getBlockNumber();
-    const fromBlock = OPTIMIZED_START_BLOCK; // Use optimized start block for better performance
+    // Get current block number
+    const currentBlock = await provider.getBlockNumber();
+    const searchRange = BLOCK_RANGE.VAULT_STAKE_SEARCH_RANGE; // Use constant for search range
+    const fromBlock = currentBlock > searchRange ? currentBlock - searchRange : START_BLOCK;
 
     console.log(`🔍 Checking vault stakes for ${userAddress}`);
-    console.log(`📊 Searching blocks: ${fromBlock} to ${blockNumber}`);
+    console.log(`📊 Searching blocks: ${fromBlock} to ${currentBlock} (from current block backwards)`);
 
-    // Get all logs from the vault contract to find transactions
+    // Get all logs from the vault proxy contract (searching backwards from current block)
     const logs = await provider.getLogs({
-      address: VAULT_ADDRESS,
+      address: VAULT_PROXY_ADDRESS,
       fromBlock,
       toBlock: "latest",
     });
 
-    console.log(`📋 Found ${logs.length} total logs from vault contract`);
+    // Filter for Staked events by checking the first topic (event signature)
+    const stakedLogs = logs.filter(
+      log => log.topics[0] === "0x1449c6dd7851abc30abf37f57715f492010519147cc2652fbc38202c18a6ee90",
+    );
 
-    // Check each transaction to see if it's from our user with stake method
+    console.log(`📋 Found ${stakedLogs.length} Staked events from vault contract`);
+
     const userStakeTransactions: VaultStakeTransaction[] = [];
 
-    for (const log of logs) {
+    for (const log of stakedLogs) {
       try {
+        // Get the transaction to check if it's from our user
         const tx = await provider.getTransaction({ hash: log.transactionHash });
 
-        if (
-          tx.from.toLowerCase() === userAddress.toLowerCase() &&
-          tx.to &&
-          tx.to.toLowerCase() === VAULT_ADDRESS.toLowerCase() &&
-          tx.input.startsWith(STAKE_METHOD_ID)
-        ) {
-          // Parse transaction data to get stake amount
-          const { stakeAmount, lockPeriod } = parseStakeTransactionData(tx.input);
+        if (tx.from.toLowerCase() === userAddress.toLowerCase()) {
+          // Parse the event data to extract amount and lockPeriod
+          const data = log.data;
 
-          console.log(`🔍 Found stake transaction: ${stakeAmount.toString()} wei (${Number(stakeAmount) / 1e18} SNT)`);
+          // Remove 0x prefix and parse the data
+          const dataHex = data.slice(2);
+
+          // Each parameter is 32 bytes (64 hex characters)
+          // Staked(address indexed vault, uint256 amount, uint256 lockPeriod)
+          const amountHex = dataHex.slice(0, 64);
+          const lockPeriodHex = dataHex.slice(64, 128);
+
+          const stakeAmount = BigInt("0x" + amountHex);
+          const lockPeriod = BigInt("0x" + lockPeriodHex);
+
+          console.log(`🔍 Found stake event: ${stakeAmount.toString()} wei (${Number(stakeAmount) / 1e18} SNT)`);
 
           // Check if stake amount meets minimum requirement (100 SNT)
-          if (isValidStakeAmount(stakeAmount)) {
+          if (stakeAmount >= MINIMUM_STAKE_AMOUNT) {
             console.log(`✅ Valid stake amount found: ${Number(stakeAmount) / 1e18} SNT >= 100 SNT`);
 
             userStakeTransactions.push({
               transactionHash: log.transactionHash,
               blockNumber: log.blockNumber,
               from: tx.from,
-              to: tx.to,
+              to: VAULT_PROXY_ADDRESS,
               input: tx.input,
               methodId: tx.input.slice(0, 10),
               stakeAmount,
@@ -203,12 +133,11 @@ export async function checkUserVaultStakes(userAddress: Address): Promise<VaultS
             console.log(
               `❌ Insufficient stake amount: ${Number(stakeAmount) / 1e18} SNT < 100 SNT, continuing search...`,
             );
-            // Continue checking other transactions
           }
         }
-      } catch {
+      } catch (error) {
         // Skip if transaction not found
-        console.log(`⚠️  Skipping log ${log.logIndex}: transaction not found`);
+        console.log(`⚠️  Skipping log ${log.logIndex}: ${error}`);
       }
     }
 
@@ -219,7 +148,7 @@ export async function checkUserVaultStakes(userAddress: Address): Promise<VaultS
 
     return userStakeTransactions;
   } catch (error) {
-    console.error("❌ Error checking vault stake transactions:", error);
+    console.error("❌ Error checking vault stake events:", error);
     throw error;
   }
 }
@@ -258,5 +187,20 @@ export async function getLatestVaultStake(userAddress: Address): Promise<VaultSt
   } catch (error) {
     console.error("Error getting latest vault stake:", error);
     return null;
+  }
+}
+
+/**
+ * Clear the vault stake cache for a specific user or all users
+ * @param userAddress - Optional user address to clear specific cache entry
+ */
+export function clearVaultStakeCache(userAddress?: Address): void {
+  if (userAddress) {
+    const cacheKey = userAddress.toLowerCase();
+    stakeCache.delete(cacheKey);
+    console.log(`🗑️ Cleared vault stake cache for ${userAddress}`);
+  } else {
+    stakeCache.clear();
+    console.log(`🗑️ Cleared all vault stake cache entries`);
   }
 }

@@ -128,24 +128,50 @@ const QuestToast = ({ t, questName, xpEarned }: { t: Toast; questName: string; x
   </div>
 );
 
+// Toast management utilities
+const dismissAllToasts = () => {
+  toast.dismiss();
+};
+
+const dismissToastsByType = (type: string) => {
+  // Dismiss all toasts that contain specific text patterns
+  const allToasts = document.querySelectorAll("[data-hot-toast]");
+  allToasts.forEach(toastEl => {
+    const text = toastEl.textContent?.toLowerCase() || "";
+    if (text.includes(type.toLowerCase())) {
+      const toastId = toastEl.getAttribute("data-hot-toast");
+      if (toastId) toast.dismiss(toastId);
+    }
+  });
+};
+
 // Toast notification functions
 export const showToast = {
   // Transaction notifications
   txPending: (message: string, txHash?: string) => {
+    // Dismiss any existing pending toasts before showing new one
+    dismissToastsByType("pending");
     return toast.custom((t: Toast) => <TxToast t={t} txHash={txHash} message={message} type="pending" />, {
       duration: 0, // Don't auto-dismiss pending transactions
+      id: "tx-pending", // Use consistent ID to prevent duplicates
     });
   },
 
   txSuccess: (message: string, txHash?: string) => {
+    // Dismiss pending toast when success comes
+    toast.dismiss("tx-pending");
     return toast.custom((t: Toast) => <TxToast t={t} txHash={txHash} message={message} type="success" />, {
-      duration: 8000,
+      duration: 6000,
+      id: "tx-success",
     });
   },
 
   txError: (message: string, txHash?: string) => {
+    // Dismiss pending toast when error comes
+    toast.dismiss("tx-pending");
     return toast.custom((t: Toast) => <TxToast t={t} txHash={txHash} message={message} type="error" />, {
-      duration: 10000,
+      duration: 8000,
+      id: "tx-error",
     });
   },
 
@@ -179,8 +205,11 @@ export const showToast = {
   },
 
   loading: (message: string) => {
+    // Dismiss any existing loading toasts before showing new one
+    dismissToastsByType("loading");
     return toast.loading(message, {
       duration: 0,
+      id: "loading-toast",
     });
   },
 
@@ -273,6 +302,15 @@ export const showToast = {
       duration: 10000,
       icon: "🌐",
     });
+  },
+
+  // Utility functions
+  dismissAll: () => {
+    dismissAllToasts();
+  },
+
+  dismissLoading: () => {
+    toast.dismiss("loading-toast");
   },
 };
 

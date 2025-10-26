@@ -1,17 +1,18 @@
+import { BLOCK_RANGE, NETWORK_CONFIG, START_BLOCK } from "./constants";
 import { type Address, createPublicClient, http } from "viem";
 
 // Status Sepolia network configuration
 const STATUS_SEPOLIA_CHAIN = {
-  id: 1660990954,
+  id: NETWORK_CONFIG.CHAIN_ID,
   name: "Status Sepolia",
   network: "statusSepolia",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
   rpcUrls: {
-    default: { http: ["https://public.sepolia.rpc.status.network"] },
-    public: { http: ["https://public.sepolia.rpc.status.network"] },
+    default: { http: [NETWORK_CONFIG.RPC_URL] },
+    public: { http: [NETWORK_CONFIG.RPC_URL] },
   },
   blockExplorers: {
-    default: { name: "StatusScan", url: "https://sepoliascan.status.network" },
+    default: { name: "StatusScan", url: NETWORK_CONFIG.BLOCK_EXPLORER_URL },
   },
 } as const;
 
@@ -19,8 +20,7 @@ const STATUS_SEPOLIA_CHAIN = {
 const PONZI_HERO_PROXY = "0xdeFa3b4431C0570225460B127d16594FE3D4Dfe6" as const;
 const PONZI_HERO_IMPLEMENTATION = "0x908b6e3aFD83633bbFB71Fb73a2bEc7972327FDd" as const;
 
-// Optimized start block - only check recent blocks for better performance
-const OPTIMIZED_START_BLOCK = 11750000n; // Much more recent start block
+// Use START_BLOCK from constants for consistency
 
 // Types for Ponzi-Hero interactions
 export interface PonziHeroInteraction {
@@ -64,12 +64,13 @@ export async function checkUserPonziHeroInteractions(userAddress: Address): Prom
   const provider = createProvider();
 
   try {
-    // Get recent block number
-    const blockNumber = await provider.getBlockNumber();
-    const fromBlock = OPTIMIZED_START_BLOCK; // Use optimized start block for better performance
+    // Get current block number
+    const currentBlock = await provider.getBlockNumber();
+    const searchRange = BLOCK_RANGE.PONZI_HERO_SEARCH_RANGE; // Use constant for search range
+    const fromBlock = currentBlock > searchRange ? currentBlock - searchRange : START_BLOCK;
 
     console.log(`🔍 Checking Ponzi-Hero interactions for ${userAddress}`);
-    console.log(`📊 Searching blocks: ${fromBlock} to ${blockNumber}`);
+    console.log(`📊 Searching blocks: ${fromBlock} to ${currentBlock} (from current block backwards)`);
 
     // Get all logs from the Ponzi-Hero proxy contract to find transactions
     const logs = await provider.getLogs({
@@ -158,5 +159,20 @@ export async function getLatestPonziHeroInteraction(userAddress: Address): Promi
   } catch (error) {
     console.error("Error getting latest Ponzi-Hero interaction:", error);
     return null;
+  }
+}
+
+/**
+ * Clear the Ponzi Hero interaction cache for a specific user or all users
+ * @param userAddress - Optional user address to clear specific cache entry
+ */
+export function clearPonziHeroCache(userAddress?: Address): void {
+  if (userAddress) {
+    const cacheKey = userAddress.toLowerCase();
+    interactionCache.delete(cacheKey);
+    console.log(`🗑️ Cleared Ponzi Hero interaction cache for ${userAddress}`);
+  } else {
+    interactionCache.clear();
+    console.log(`🗑️ Cleared all Ponzi Hero interaction cache entries`);
   }
 }
