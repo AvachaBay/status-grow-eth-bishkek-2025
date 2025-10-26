@@ -34,6 +34,8 @@ export interface VaultStakeTransaction {
   to: Address;
   input: string;
   methodId: string;
+  stakeAmount: bigint;
+  lockPeriod: bigint;
 }
 
 // Cache for storing results to prevent duplicate calls
@@ -46,6 +48,41 @@ const createProvider = () => {
     transport: http("https://public.sepolia.rpc.status.network"),
   });
 };
+
+/**
+ * Parse stake transaction data to extract amount and lock period
+ * @param input - The transaction input data
+ * @returns Object with stakeAmount and lockPeriod
+ */
+function parseStakeTransactionData(input: string): { stakeAmount: bigint; lockPeriod: bigint } {
+  try {
+    // Remove the method ID (first 10 characters) to get the encoded parameters
+    const encodedParams = input.slice(10);
+
+    // Each parameter is 32 bytes (64 hex characters)
+    // stake(uint256 _amount, uint256 _seconds)
+    const amountHex = encodedParams.slice(0, 64);
+    const lockPeriodHex = encodedParams.slice(64, 128);
+
+    const stakeAmount = BigInt("0x" + amountHex);
+    const lockPeriod = BigInt("0x" + lockPeriodHex);
+
+    return { stakeAmount, lockPeriod };
+  } catch (error) {
+    console.error("Error parsing stake transaction data:", error);
+    return { stakeAmount: 0n, lockPeriod: 0n };
+  }
+}
+
+/**
+ * Check if stake amount meets minimum requirement (100 SNT)
+ * @param stakeAmount - The stake amount in wei
+ * @returns boolean - True if amount is >= 100 SNT
+ */
+function isValidStakeAmount(stakeAmount: bigint): boolean {
+  const minimumStake = 100n * 10n ** 18n; // 100 SNT in wei (18 decimals)
+  return stakeAmount >= minimumStake;
+}
 
 /**
  * Check if a user has staked SNT tokens in the vault contract
@@ -79,17 +116,31 @@ export async function checkUserVaultStakes(userAddress: Address): Promise<VaultS
           knownTx.to.toLowerCase() === VAULT_ADDRESS.toLowerCase() &&
           knownTx.input.startsWith(STAKE_METHOD_ID)
         ) {
-          console.log(`✅ Found known test transaction for ${userAddress}`);
-          return [
-            {
-              transactionHash: knownTx.hash,
-              blockNumber: knownTx.blockNumber,
-              from: knownTx.from,
-              to: knownTx.to,
-              input: knownTx.input,
-              methodId: knownTx.input.slice(0, 10),
-            },
-          ];
+          // Parse the known test transaction data
+          const { stakeAmount, lockPeriod } = parseStakeTransactionData(knownTx.input);
+
+          // Check if the known transaction meets minimum requirements
+          if (isValidStakeAmount(stakeAmount)) {
+            console.log(
+              `✅ Found known test transaction for ${userAddress} with valid amount: ${Number(stakeAmount) / 1e18} SNT`,
+            );
+            return [
+              {
+                transactionHash: knownTx.hash,
+                blockNumber: knownTx.blockNumber,
+                from: knownTx.from,
+                to: knownTx.to,
+                input: knownTx.input,
+                methodId: knownTx.input.slice(0, 10),
+                stakeAmount,
+                lockPeriod,
+              },
+            ];
+          } else {
+            console.log(
+              `❌ Known test transaction has insufficient amount: ${Number(stakeAmount) / 1e18} SNT < 100 SNT`,
+            );
+          }
         }
       } catch (err) {
         console.log(`⚠️  Known test transaction not found: ${err}`);
@@ -125,18 +176,35 @@ export async function checkUserVaultStakes(userAddress: Address): Promise<VaultS
           tx.to.toLowerCase() === VAULT_ADDRESS.toLowerCase() &&
           tx.input.startsWith(STAKE_METHOD_ID)
         ) {
-          userStakeTransactions.push({
-            transactionHash: log.transactionHash,
-            blockNumber: log.blockNumber,
-            from: tx.from,
-            to: tx.to,
-            input: tx.input,
-            methodId: tx.input.slice(0, 10),
-          });
+          // Parse transaction data to get stake amount
+          const { stakeAmount, lockPeriod } = parseStakeTransactionData(tx.input);
 
-          // Early exit: if we found one stake, that's enough for quest completion
-          console.log(`✅ Found vault stake, stopping search for performance`);
-          break;
+          console.log(`🔍 Found stake transaction: ${stakeAmount.toString()} wei (${Number(stakeAmount) / 1e18} SNT)`);
+
+          // Check if stake amount meets minimum requirement (100 SNT)
+          if (isValidStakeAmount(stakeAmount)) {
+            console.log(`✅ Valid stake amount found: ${Number(stakeAmount) / 1e18} SNT >= 100 SNT`);
+
+            userStakeTransactions.push({
+              transactionHash: log.transactionHash,
+              blockNumber: log.blockNumber,
+              from: tx.from,
+              to: tx.to,
+              input: tx.input,
+              methodId: tx.input.slice(0, 10),
+              stakeAmount,
+              lockPeriod,
+            });
+
+            // Early exit: if we found one valid stake, that's enough for quest completion
+            console.log(`✅ Found valid vault stake (>=100 SNT), stopping search for performance`);
+            break;
+          } else {
+            console.log(
+              `❌ Insufficient stake amount: ${Number(stakeAmount) / 1e18} SNT < 100 SNT, continuing search...`,
+            );
+            // Continue checking other transactions
+          }
         }
       } catch {
         // Skip if transaction not found
