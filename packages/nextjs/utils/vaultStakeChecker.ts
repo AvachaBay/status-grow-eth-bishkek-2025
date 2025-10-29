@@ -35,7 +35,13 @@ export interface VaultStakeTransaction {
 }
 
 // Cache for storing results to prevent duplicate calls
-const stakeCache = new Map<string, VaultStakeTransaction[]>();
+interface CacheEntry {
+  transactions: VaultStakeTransaction[];
+  lastCheckedBlock: bigint;
+  timestamp: number;
+}
+
+const stakeCache = new Map<string, CacheEntry>();
 
 // Create provider instance
 const createProvider = () => {
@@ -55,23 +61,27 @@ export async function checkUserVaultStakes(userAddress: Address): Promise<VaultS
     throw new Error("User address is required");
   }
 
-  // Check cache first
+  // Check cache first - use lastCheckedBlock as fromBlock if cached
   const cacheKey = userAddress.toLowerCase();
-  if (stakeCache.has(cacheKey)) {
-    console.log(`📋 Using cached vault stakes for ${userAddress}`);
-    return stakeCache.get(cacheKey)!;
-  }
+  const cachedEntry = stakeCache.get(cacheKey);
+  const now = Date.now();
 
   const provider = createProvider();
 
   try {
     // Get current block number
     const currentBlock = await provider.getBlockNumber();
-    const searchRange = BLOCK_RANGE.VAULT_STAKE_SEARCH_RANGE; // Use constant for search range
-    const fromBlock = currentBlock > searchRange ? currentBlock - searchRange : START_BLOCK;
 
-    console.log(`🔍 Checking vault stakes for ${userAddress}`);
-    console.log(`📊 Searching blocks: ${fromBlock} to ${currentBlock} (from current block backwards)`);
+    // Use lastCheckedBlock as fromBlock if we have cached data, otherwise use search range
+    let fromBlock: bigint;
+    if (cachedEntry) {
+      fromBlock = cachedEntry.lastCheckedBlock + 1n; // Start from the block after last check
+      console.log(`📋 Using cached data, searching from block ${fromBlock} to ${currentBlock}`);
+    } else {
+      const searchRange = BLOCK_RANGE.VAULT_STAKE_SEARCH_RANGE;
+      fromBlock = currentBlock > searchRange ? currentBlock - searchRange : START_BLOCK;
+      console.log(`🔍 First time checking, searching from block ${fromBlock} to ${currentBlock}`);
+    }
 
     // Query StakeManagerProxy logs for Staked events using proper event ABI
     const stakedLogs = await provider.getLogs({
@@ -83,7 +93,8 @@ export async function checkUserVaultStakes(userAddress: Address): Promise<VaultS
 
     console.log(`📋 Found ${stakedLogs.length} Staked events from StakeManagerProxy`);
 
-    const userStakeTransactions: VaultStakeTransaction[] = [];
+    // Start with cached transactions if available
+    const userStakeTransactions: VaultStakeTransaction[] = cachedEntry ? [...cachedEntry.transactions] : [];
 
     for (const log of stakedLogs) {
       try {
@@ -102,17 +113,25 @@ export async function checkUserVaultStakes(userAddress: Address): Promise<VaultS
           if (stakeAmount >= MINIMUM_STAKE_AMOUNT) {
             console.log(`✅ Valid stake amount found: ${Number(stakeAmount) / 1e18} SNT >= 100 SNT`);
 
-            userStakeTransactions.push({
-              transactionHash: log.transactionHash,
-              blockNumber: log.blockNumber,
-              from: tx.from,
-              // Note: transaction recipient can be StakeManager or a proxy; we keep the original tx.to
-              to: tx.to!,
-              input: tx.input,
-              methodId: tx.input.slice(0, 10),
-              stakeAmount,
-              lockPeriod,
-            });
+            // Check if this transaction is already in our cache to avoid duplicates
+            const existingTx = userStakeTransactions.find(existing => existing.transactionHash === log.transactionHash);
+
+            if (!existingTx) {
+              userStakeTransactions.push({
+                transactionHash: log.transactionHash,
+                blockNumber: log.blockNumber,
+                from: tx.from,
+                // Note: transaction recipient can be StakeManager or a proxy; we keep the original tx.to
+                to: tx.to!,
+                input: tx.input,
+                methodId: tx.input.slice(0, 10),
+                stakeAmount,
+                lockPeriod,
+              });
+              console.log(`✅ Added new stake transaction to results`);
+            } else {
+              console.log(`📋 Transaction already in cache, skipping duplicate`);
+            }
 
             // Early exit: if we found one valid stake, that's enough for quest completion
             console.log(`✅ Found valid vault stake (>=100 SNT), stopping search for performance`);
@@ -131,8 +150,12 @@ export async function checkUserVaultStakes(userAddress: Address): Promise<VaultS
 
     console.log(`✅ Found ${userStakeTransactions.length} stake transactions by user`);
 
-    // Cache the results
-    stakeCache.set(cacheKey, userStakeTransactions);
+    // Cache the results with metadata
+    stakeCache.set(cacheKey, {
+      transactions: userStakeTransactions,
+      lastCheckedBlock: currentBlock,
+      timestamp: now,
+    });
 
     return userStakeTransactions;
   } catch (error) {
@@ -191,4 +214,14 @@ export function clearVaultStakeCache(userAddress?: Address): void {
     stakeCache.clear();
     console.log(`🗑️ Cleared all vault stake cache entries`);
   }
+}
+
+/**
+ * Force refresh the cache for a specific user (useful after new stakes)
+ * @param userAddress - User address to refresh cache for
+ */
+export function refreshVaultStakeCache(userAddress: Address): void {
+  const cacheKey = userAddress.toLowerCase();
+  stakeCache.delete(cacheKey);
+  console.log(`🔄 Refreshed vault stake cache for ${userAddress}`);
 }
