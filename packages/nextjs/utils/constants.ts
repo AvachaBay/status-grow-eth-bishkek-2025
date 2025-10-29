@@ -18,7 +18,7 @@ export const BLOCK_RANGE = {
   MAX_HISTORICAL_BLOCKS: 100000n,
 
   // Search ranges for different checkers (searching backwards from current block)
-  VAULT_STAKE_SEARCH_RANGE: 10000n, // Last 10,000 blocks for vault stakes
+  VAULT_STAKE_SEARCH_RANGE: 200000n, // Last 200,000 blocks for vault stakes (to include historical transactions)
   NFT_MINT_SEARCH_RANGE: 20000n, // Last 20,000 blocks for NFT mints
   PONZI_HERO_SEARCH_RANGE: 15000n, // Last 15,000 blocks for Ponzi Hero interactions
 } as const;
@@ -52,8 +52,8 @@ export const CONTRACT_ADDRESSES = {
   // QuestNFT contract address
   QUEST_NFT: "0xf4432bAbc32afAcCeaf76afC9a1B2a9D3D55BAa8" as const,
 
-  // Vault proxy contract address for staking
-  VAULT_PROXY: "0xa5a82CCfE29d7f384E9A072991a1F6182C28e575" as const,
+  // StakeManagerProxy contract emitting Staked events
+  STAKE_MANAGER_PROXY: "0xa5a82CCfE29d7f384E9A072991a1F6182C28e575" as const,
 
   // Add other contract addresses here as needed
 } as const;

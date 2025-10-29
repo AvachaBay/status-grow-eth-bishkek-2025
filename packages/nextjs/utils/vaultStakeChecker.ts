@@ -1,5 +1,5 @@
 import { BLOCK_RANGE, CONTRACT_ADDRESSES, NETWORK_CONFIG, START_BLOCK } from "./constants";
-import { type Address, createPublicClient, http } from "viem";
+import { type Address, createPublicClient, http, parseAbiItem } from "viem";
 
 // Status Sepolia network configuration
 const STATUS_SEPOLIA_CHAIN = {
@@ -17,7 +17,7 @@ const STATUS_SEPOLIA_CHAIN = {
 } as const;
 
 // Contract addresses from constants
-const VAULT_PROXY_ADDRESS = CONTRACT_ADDRESSES.VAULT_PROXY;
+const STAKE_MANAGER_PROXY_ADDRESS = CONTRACT_ADDRESSES.STAKE_MANAGER_PROXY;
 const MINIMUM_STAKE_AMOUNT = 100n * 10n ** 18n; // 100 SNT in wei
 
 // Use START_BLOCK from constants for consistency
@@ -73,19 +73,15 @@ export async function checkUserVaultStakes(userAddress: Address): Promise<VaultS
     console.log(`🔍 Checking vault stakes for ${userAddress}`);
     console.log(`📊 Searching blocks: ${fromBlock} to ${currentBlock} (from current block backwards)`);
 
-    // Get all logs from the vault proxy contract (searching backwards from current block)
-    const logs = await provider.getLogs({
-      address: VAULT_PROXY_ADDRESS,
+    // Query StakeManagerProxy logs for Staked events using proper event ABI
+    const stakedLogs = await provider.getLogs({
+      address: STAKE_MANAGER_PROXY_ADDRESS,
       fromBlock,
       toBlock: "latest",
+      event: parseAbiItem("event Staked(address indexed vault, uint256 amount, uint256 lockPeriod)"),
     });
 
-    // Filter for Staked events by checking the first topic (event signature)
-    const stakedLogs = logs.filter(
-      log => log.topics[0] === "0x1449c6dd7851abc30abf37f57715f492010519147cc2652fbc38202c18a6ee90",
-    );
-
-    console.log(`📋 Found ${stakedLogs.length} Staked events from vault contract`);
+    console.log(`📋 Found ${stakedLogs.length} Staked events from StakeManagerProxy`);
 
     const userStakeTransactions: VaultStakeTransaction[] = [];
 
@@ -95,19 +91,10 @@ export async function checkUserVaultStakes(userAddress: Address): Promise<VaultS
         const tx = await provider.getTransaction({ hash: log.transactionHash });
 
         if (tx.from.toLowerCase() === userAddress.toLowerCase()) {
-          // Parse the event data to extract amount and lockPeriod
-          const data = log.data;
-
-          // Remove 0x prefix and parse the data
-          const dataHex = data.slice(2);
-
-          // Each parameter is 32 bytes (64 hex characters)
-          // Staked(address indexed vault, uint256 amount, uint256 lockPeriod)
-          const amountHex = dataHex.slice(0, 64);
-          const lockPeriodHex = dataHex.slice(64, 128);
-
-          const stakeAmount = BigInt("0x" + amountHex);
-          const lockPeriod = BigInt("0x" + lockPeriodHex);
+          // viem automatically decodes the event data for us
+          const decodedLog = log as any; // Type assertion since viem's types are complex
+          const stakeAmount = decodedLog.args.amount;
+          const lockPeriod = decodedLog.args.lockPeriod;
 
           console.log(`🔍 Found stake event: ${stakeAmount.toString()} wei (${Number(stakeAmount) / 1e18} SNT)`);
 
@@ -119,7 +106,8 @@ export async function checkUserVaultStakes(userAddress: Address): Promise<VaultS
               transactionHash: log.transactionHash,
               blockNumber: log.blockNumber,
               from: tx.from,
-              to: VAULT_PROXY_ADDRESS,
+              // Note: transaction recipient can be StakeManager or a proxy; we keep the original tx.to
+              to: tx.to!,
               input: tx.input,
               methodId: tx.input.slice(0, 10),
               stakeAmount,
