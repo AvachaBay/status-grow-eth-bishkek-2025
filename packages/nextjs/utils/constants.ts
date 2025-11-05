@@ -20,7 +20,7 @@ export const BLOCK_RANGE = {
   // Search ranges for different checkers (searching backwards from current block)
   VAULT_STAKE_SEARCH_RANGE: 200000n, // Last 200,000 blocks for vault stakes (to include historical transactions)
   NFT_MINT_SEARCH_RANGE: 20000n, // Last 20,000 blocks for NFT mints
-  PONZI_HERO_SEARCH_RANGE: 15000n, // Last 15,000 blocks for Ponzi Hero interactions
+  PONZI_HERO_SEARCH_RANGE: 200000n, // Last 200,000 blocks for Ponzi Hero interactions (to include historical transactions)
 } as const;
 
 // Retry configuration for blockchain verification

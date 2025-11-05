@@ -33,7 +33,13 @@ export interface PonziHeroInteraction {
 }
 
 // Cache for storing results to prevent duplicate calls
-const interactionCache = new Map<string, PonziHeroInteraction[]>();
+interface CacheEntry {
+  interactions: PonziHeroInteraction[];
+  lastCheckedBlock: bigint;
+  timestamp: number;
+}
+
+const interactionCache = new Map<string, CacheEntry>();
 
 // Create provider instance
 const createProvider = () => {
@@ -54,23 +60,29 @@ export async function checkUserPonziHeroInteractions(userAddress: Address): Prom
     throw new Error("User address is required");
   }
 
-  // Check cache first
+  // Check cache first - use lastCheckedBlock as fromBlock if cached
   const cacheKey = userAddress.toLowerCase();
-  if (interactionCache.has(cacheKey)) {
-    console.log(`📋 Using cached Ponzi-Hero interactions for ${userAddress}`);
-    return interactionCache.get(cacheKey)!;
-  }
+  const cachedEntry = interactionCache.get(cacheKey);
+  const now = Date.now();
 
   const provider = createProvider();
 
   try {
     // Get current block number
     const currentBlock = await provider.getBlockNumber();
-    const searchRange = BLOCK_RANGE.PONZI_HERO_SEARCH_RANGE; // Use constant for search range
-    const fromBlock = currentBlock > searchRange ? currentBlock - searchRange : START_BLOCK;
 
-    console.log(`🔍 Checking Ponzi-Hero interactions for ${userAddress}`);
-    console.log(`📊 Searching blocks: ${fromBlock} to ${currentBlock} (from current block backwards)`);
+    // Use lastCheckedBlock as fromBlock if we have cached data, otherwise use search range
+    let fromBlock: bigint;
+    if (cachedEntry) {
+      fromBlock = cachedEntry.lastCheckedBlock + 1n; // Start from the block after last check
+      console.log(`📋 Using cached data, searching from block ${fromBlock} to ${currentBlock}`);
+    } else {
+      const searchRange = BLOCK_RANGE.PONZI_HERO_SEARCH_RANGE;
+      const calculatedFromBlock = currentBlock > searchRange ? currentBlock - searchRange : START_BLOCK;
+      // Always use START_BLOCK if it's earlier than calculated block to include all historical transactions
+      fromBlock = calculatedFromBlock > START_BLOCK ? START_BLOCK : calculatedFromBlock;
+      console.log(`🔍 First time checking, searching from block ${fromBlock} to ${currentBlock}`);
+    }
 
     // Get all logs from the Ponzi-Hero proxy contract to find transactions
     const logs = await provider.getLogs({
@@ -81,8 +93,8 @@ export async function checkUserPonziHeroInteractions(userAddress: Address): Prom
 
     console.log(`📋 Found ${logs.length} total logs from Ponzi-Hero contract`);
 
-    // Check each transaction to see if it's from our user
-    const userInteractions: PonziHeroInteraction[] = [];
+    // Start with cached interactions if available
+    const userInteractions: PonziHeroInteraction[] = cachedEntry ? [...cachedEntry.interactions] : [];
 
     for (const log of logs) {
       try {
@@ -94,14 +106,24 @@ export async function checkUserPonziHeroInteractions(userAddress: Address): Prom
           (tx.to.toLowerCase() === PONZI_HERO_PROXY.toLowerCase() ||
             tx.to.toLowerCase() === PONZI_HERO_IMPLEMENTATION.toLowerCase())
         ) {
-          userInteractions.push({
-            transactionHash: log.transactionHash,
-            blockNumber: log.blockNumber,
-            from: tx.from,
-            to: tx.to,
-            input: tx.input,
-            methodId: tx.input.slice(0, 10),
-          });
+          // Check if this interaction is already in our cache to avoid duplicates
+          const existingInteraction = userInteractions.find(
+            existing => existing.transactionHash === log.transactionHash,
+          );
+
+          if (!existingInteraction) {
+            userInteractions.push({
+              transactionHash: log.transactionHash,
+              blockNumber: log.blockNumber,
+              from: tx.from,
+              to: tx.to,
+              input: tx.input,
+              methodId: tx.input.slice(0, 10),
+            });
+            console.log(`✅ Added new Ponzi-Hero interaction to results`);
+          } else {
+            console.log(`📋 Interaction already in cache, skipping duplicate`);
+          }
 
           // Early exit: if we found one interaction, that's enough for quest completion
           console.log(`✅ Found Ponzi-Hero interaction, stopping search for performance`);
@@ -115,8 +137,12 @@ export async function checkUserPonziHeroInteractions(userAddress: Address): Prom
 
     console.log(`✅ Found ${userInteractions.length} Ponzi-Hero interactions by user`);
 
-    // Cache the results
-    interactionCache.set(cacheKey, userInteractions);
+    // Cache the results with metadata
+    interactionCache.set(cacheKey, {
+      interactions: userInteractions,
+      lastCheckedBlock: currentBlock,
+      timestamp: now,
+    });
 
     return userInteractions;
   } catch (error) {
@@ -175,4 +201,14 @@ export function clearPonziHeroCache(userAddress?: Address): void {
     interactionCache.clear();
     console.log(`🗑️ Cleared all Ponzi Hero interaction cache entries`);
   }
+}
+
+/**
+ * Force refresh the cache for a specific user (useful after new interactions)
+ * @param userAddress - User address to refresh cache for
+ */
+export function refreshPonziHeroCache(userAddress: Address): void {
+  const cacheKey = userAddress.toLowerCase();
+  interactionCache.delete(cacheKey);
+  console.log(`🔄 Refreshed Ponzi Hero interaction cache for ${userAddress}`);
 }
